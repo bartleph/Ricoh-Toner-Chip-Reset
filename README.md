@@ -7,9 +7,13 @@ and a 6 way PCB Edge Connector, with connector 1 and 6 removed.
 The PCB edgeconnector is ok for inserting the Ricoh Toner Chips and allows connection of :
 left most pad = 1.
 rightmost pad = 4.
+
 1 = SCL = A5
+
 2 = SDA = A4
+
 3 = 5v  = VCC
+
 4 = GND = GND
 
 Place the toner chip in the edge connector. Connect the Nano to your Computer. Use any serial terminal app
