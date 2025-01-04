@@ -1,7 +1,9 @@
+
 /* This code updates Ricoh Toner chip for Ricoh Aficio SP C240SF, SP C240DN, C240e, etc...
 
- Original by DIY Tinker 26th Feb 2018
- Modified by Paul Bartlett 09th Feb 2020
+ V1.0 Original by DIY Tinker 26th Feb 2018
+ V2.0 Modified by Paul Bartlett 09th Feb 2020 ...To manually specify which toner variety to reset.
+ V3.0 Modified by Paul Bartlett 03rd Jan 2025 ...To Automatically detect which toner variety to reset.
  
    ______________________
    \                    /
@@ -14,7 +16,7 @@
 
      A5   A4   +5v  Gnd
 */
-
+#include <Arduino.h>
 int EEPROM_I2C_ADDRESS;
 #include <Wire.h>
 
@@ -63,88 +65,77 @@ byte YChipData[]={0xA7, 0x00, 0x01, 0x01, 0x14, 0x04, 0x01, 0xFF, 0x64, 0x00, 0x
   0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
   0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-char inputByte="";
+int inputByte;
+
 byte getaddress() {
   byte error, address;
-  int nDevices;
-
+  int nDevices = 0;
+  Serial.println("*******************************************************************************");
+  Serial.println("** Ricoh Aficio SP C240SF, SP C240DN, C240e, etc... Toner Chip Reset Utility **");
+  Serial.println("**                 V2.0 Paul Bartlett 03rd January 2025                      **");
+  Serial.println("*******************************************************************************");
+  Serial.println();
   Serial.println("Scanning...");
 
-  nDevices = 0;
-  for (address = 1; address < 127; address++ ) {
+  for (address = 80; address < 84; address++) { //I2C addresses for the toner chips are decimal 80, 81, 82, 83
+                                                //0x50, 0x51, 0x52, 0x53
+    Serial.print("Checking address 0x");
+    Serial.println(address, HEX);
     Wire.beginTransmission(address);
     error = Wire.endTransmission();
-
+    
     if (error == 0) {
       Serial.print("I2C device found at address 0x");
       if (address < 16)
         Serial.print("0");
-      Serial.print(address, HEX);
-      Serial.println("  !");
-
-      nDevices++;
-    }
-    else if (error == 4) {
-      Serial.print("Unknown error at address 0x");
-      if (address < 16)
-        Serial.print("0");
       Serial.println(address, HEX);
-      return address;
+      return address; // Return the first device address found
     }
   }
-  if (nDevices == 0)
-    Serial.println("No I2C devices found\n");
-  else
-    Serial.println("done\n");
 
-  delay(5000);
-}
-void setup() {
-  Serial.begin(115200);
-  Serial.println("Toner chip reset utility. ver 2.1 (c)PHB 2020");
-  Serial.println("Enter capital Letter for Cartridge Chip to zero? (B)lack (M)agenta (C)yan (Y)ellow?");
-  while(!Serial.available()){
-    ;
+  if (nDevices == 0) {
+    Serial.println("No I2C devices found.");
   }
-  inputByte=Serial.read();
-  
+  return 0xFF; // Return 0xFF if no devices are found
+}
+
+void stop()
+{
+  while(1);
+}
+
+void setup() {
+   // Start Wire and Serial bus
+  Serial.begin(115200);
+  Serial.print("\033[0H\033[0J"); //Clear terminal Screen.
+  Wire.begin();
+  EEPROM_I2C_ADDRESS=getaddress(); //determine I2C address of toner chip
+    switch(EEPROM_I2C_ADDRESS) {
+    case 0x50 :
+      Serial.println(" Yellow  Toner Reset");
+      break;
+    case 0x51 :
+      Serial.println(" Magenta Toner Reset");
+      break;
+    case 0x52 :
+      Serial.println(" Cyan    Toner Reset");
+      break;
+    case 0x53 :
+      Serial.println(" Black   Toner Reset");
+      break;
+    case 0xFF :
+      Serial.println("No Toner Chip Present.");
+      stop();
+  }
+  delay(5000);
   // Select correct data for chip then copy to WriteData array
   byte WriteData[128];
-  switch (inputByte){
-    case 'B':
-      memcpy(WriteData,KChipData,128*sizeof(byte));
-      EEPROM_I2C_ADDRESS=83;
-      break;
-    case 'C':
-      memcpy(WriteData,CChipData,128*sizeof(byte));
-      EEPROM_I2C_ADDRESS=82;
-      break; 
-    case 'M':
-      memcpy(WriteData,MChipData,128*sizeof(byte));
-      EEPROM_I2C_ADDRESS=81;
-      break;
-    case 'Y':
-      memcpy(WriteData,YChipData,128*sizeof(byte));
-      EEPROM_I2C_ADDRESS=80;
-      break;
-    default: //default K chip data, no reason.
-      Serial.println("Incorrect....Reboot Arduino and try again!");
-      delay(1000);
-      return;
-  }
-  
-  // Start Wire and Serial bus
-  Wire.begin();
-  
   delay(100);
-
   Serial.println("Start");
   Serial.println(" ");
-
   // Start Write Chip with blank data
   Serial.println("Write 128 bytes:");
   byte wordaddress;
-
   for(byte i=0;i<128;i++){
         wordaddress = i;
         i2cwrite((byte)wordaddress,(byte)WriteData[i]);
@@ -153,7 +144,6 @@ void setup() {
         Serial.print(WriteData[i]);
         Serial.println(" ");
   }
-
   // Start Read chip
   Serial.println(" ");
   Serial.println("Read 128 bytes:");
@@ -166,11 +156,9 @@ void setup() {
   } 
   Serial.println(" ");  
   Serial.println("End");
-
 }
 
 void loop() {
-
 }
 
 void i2cwrite(byte address, byte data) {
@@ -183,27 +171,15 @@ void i2cwrite(byte address, byte data) {
 
 byte i2cread(byte address) {
   byte rData = 0;
+  // Begin I2C transmission
   Wire.beginTransmission(EEPROM_I2C_ADDRESS);
-  Wire.write((byte)address);
+  Wire.write(address); // Send the memory address to read
   Wire.endTransmission();
-
-  Wire.requestFrom(EEPROM_I2C_ADDRESS,1);
-  while (Wire.available()){
+  // Request 1 byte from the EEPROM
+  Wire.requestFrom(EEPROM_I2C_ADDRESS, 1);
+  // Read the data
+  if (Wire.available()) {
     rData = Wire.read();
-    return rData;
   }
-}
-
-void WhatI2CAddress() {
-    for(int i=0;i<128;i++){
-      Wire.requestFrom(i,1);  //request first data byte
-      Serial.print(i);
-      Serial.print(":");
-      while(Wire.available()){
-        byte c = Wire.read();
-        Serial.println(c);      //if data exist, print it out. That way you can identify which address.
-      }
-      Serial.println(" ");
-      delay(5);
-  }
+  return rData; // Return the read byte, even if it's 0 (default)
 }
